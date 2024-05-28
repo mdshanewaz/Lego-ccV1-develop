@@ -1,0 +1,286 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+Parameters:
+  ImageTag:
+    Type: String
+  ServiceName:
+    Type: String
+  ContainerPort:
+    Type: Number
+    Default: 80
+  VPC:
+    Type: AWS::EC2::VPC::Id
+  SubnetA:
+    Type: AWS::EC2::Subnet::Id
+  SubnetB:
+    Type: AWS::EC2::Subnet::Id
+  LoadBalancerPort:
+    Type: Number
+    Default: 80
+  HealthCheckPath:
+    Type: String
+    Default: /
+  AlbPriority:
+    Type: Number
+    Default: 1
+  AlbPath:
+    Type: String
+  AlbStackName:
+    Type: String
+  AlbSecurityGroup:
+    Type: String
+  Cluster:
+    Type: String
+  HostedZoneName:
+    Type: String
+    Default: ccv1.com
+  Subdomain:
+    Type: String
+    Default: dev
+  DeploymentTag:
+    Type: String
+
+Resources:
+  Service:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Ref ServiceName
+      Cluster: !Ref Cluster
+      TaskDefinition: !Ref TaskDefinition
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 100
+        MaximumPercent: 200
+      DesiredCount: 1
+      # This may need to be adjusted if the container takes a while to start up
+      HealthCheckGracePeriodSeconds: 30
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          # change to DISABLED if you're using private subnets that have access to a NAT gateway
+          AssignPublicIp: ENABLED
+          Subnets:
+            - !Ref SubnetA
+            - !Ref SubnetB
+          SecurityGroups:
+            - !Ref ContainerSecurityGroup
+      LoadBalancers:
+        - ContainerName: 'webserver'
+          ContainerPort: 80
+          TargetGroupArn: !Ref TargetGroup
+      Tags:
+        -
+          Key: DeploymentTag
+          Value: !Ref DeploymentTag
+  
+  ListenerRule:
+    Type: 'AWS::ElasticLoadBalancingV2::ListenerRule'
+    Properties:
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+      Conditions:
+        - Field: host-header
+          Values:
+          - !Join ['', [!Ref Subdomain, ., !Ref HostedZoneName]]
+#         - Field: path-pattern
+#           Values:
+#             - '/v1*'
+#             - '/static*'
+      ListenerArn: !ImportValue
+        'Fn::Sub': '${AlbStackName}-ListenerArn'
+      Priority: !Ref AlbPriority
+  
+  TargetGroup:
+    Type: 'AWS::ElasticLoadBalancingV2::TargetGroup'
+    Properties:
+      Name: !Join ['', [!Ref ServiceName, TargetGroup]]
+      VpcId: !Ref VPC
+      Protocol: HTTP
+      Port: !Ref ContainerPort
+      HealthCheckPath: !Ref HealthCheckPath
+      HealthCheckProtocol: HTTP
+      UnhealthyThresholdCount: 5
+      HealthyThresholdCount: 2
+      HealthCheckTimeoutSeconds: 10
+      TargetType: ip
+  
+  # Define the task that runs the containers:(1)app, (2)nginx
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    DependsOn:
+      - AppLogGroup
+      - WebLogGroup    
+    Properties:
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - "FARGATE"
+      Cpu: 256
+      Memory: 0.5GB
+      ExecutionRoleArn: !Ref ExecutionRole
+      TaskRoleArn: !Ref TaskRole
+      ContainerDefinitions:
+        - Name: 'webapp'
+          Image: !Sub '018837131763.dkr.ecr.us-east-1.amazonaws.com/ccv1/dev/ccv1-webapp:${ImageTag}'
+          HealthCheck:
+            Command:
+              - 'CMD-SHELL'
+              - 'python --version'
+            Interval: 30
+            Retries: 3
+            Timeout: 5
+          PortMappings:
+            - ContainerPort: 5000
+              protocol: 'tcp'
+              hostPort: 5000
+          Secrets:
+            - Name: AWS_ACCESS_KEY_ID
+              ValueFrom: !Sub  'arn:aws:ssm:us-east-1:${AWS::AccountId}:parameter/${ServiceName}/AWS_ACCESS_KEY_ID'
+            - Name: AWS_S3_CUSTOM_DOMAIN
+              ValueFrom: !Sub  'arn:aws:ssm:us-east-1:${AWS::AccountId}:parameter/${ServiceName}/AWS_S3_CUSTOM_DOMAIN'
+            - Name: AWS_SECRET_ACCESS_KEY
+              ValueFrom: !Sub  'arn:aws:ssm:us-east-1:${AWS::AccountId}:parameter/${ServiceName}/AWS_SECRET_ACCESS_KEY'
+            - Name: AWS_STORAGE_BUCKET_NAME
+              ValueFrom: !Sub  'arn:aws:ssm:us-east-1:${AWS::AccountId}:parameter/${ServiceName}/AWS_STORAGE_BUCKET_NAME'
+            - Name: CONST_MPAYPAL_CLIENT_ID
+              ValueFrom: !Sub  'arn:aws:ssm:us-east-1:${AWS::AccountId}:parameter/${ServiceName}/CONST_MPAYPAL_CLIENT_ID'
+            - Name: CONST_MPAYPAL_SECRET_ID
+              ValueFrom: !Sub  'arn:aws:ssm:us-east-1:${AWS::AccountId}:parameter/${ServiceName}/CONST_MPAYPAL_SECRET_ID'
+            - Name: DJANGO_SETTINGS_MODULE
+              ValueFrom: !Sub  'arn:aws:ssm:us-east-1:${AWS::AccountId}:parameter/${ServiceName}/DJANGO_SETTINGS_MODULE'
+            - Name: DJANGO_SUPERUSER_EMAIL
+              ValueFrom: !Sub  'arn:aws:ssm:us-east-1:${AWS::AccountId}:parameter/${ServiceName}/DJANGO_SUPERUSER_EMAIL'
+            - Name: DJANGO_SUPERUSER_PASSWORD
+              ValueFrom: !Sub  'arn:aws:ssm:us-east-1:${AWS::AccountId}:parameter/${ServiceName}/DJANGO_SUPERUSER_PASSWORD'
+            - Name: DJANGO_SUPERUSER_USERNAME
+              ValueFrom: !Sub  'arn:aws:ssm:us-east-1:${AWS::AccountId}:parameter/${ServiceName}/DJANGO_SUPERUSER_USERNAME'
+            - Name: DNS_NAME
+              ValueFrom: !Sub  'arn:aws:ssm:us-east-1:${AWS::AccountId}:parameter/${ServiceName}/DNS_NAME'
+            - Name: DOMAIN
+              ValueFrom: !Sub  'arn:aws:ssm:us-east-1:${AWS::AccountId}:parameter/${ServiceName}/DOMAIN'
+            - Name: EMAIL_HOST
+              ValueFrom: !Sub  'arn:aws:ssm:us-east-1:${AWS::AccountId}:parameter/${ServiceName}/EMAIL_HOST'
+            - Name: EMAIL_HOST_PASSWORD
+              ValueFrom: !Sub  'arn:aws:ssm:us-east-1:${AWS::AccountId}:parameter/${ServiceName}/EMAIL_HOST_PASSWORD'
+            - Name: EMAIL_HOST_USER
+              ValueFrom: !Sub  'arn:aws:ssm:us-east-1:${AWS::AccountId}:parameter/${ServiceName}/EMAIL_HOST_USER'
+            - Name: EMAIL_PORT
+              ValueFrom: !Sub  'arn:aws:ssm:us-east-1:${AWS::AccountId}:parameter/${ServiceName}/EMAIL_PORT'
+            - Name: EMAIL_USE_TLS
+              ValueFrom: !Sub  'arn:aws:ssm:us-east-1:${AWS::AccountId}:parameter/${ServiceName}/EMAIL_USE_TLS'
+            - Name: LOG_DIRECTORY
+              ValueFrom: !Sub  'arn:aws:ssm:us-east-1:${AWS::AccountId}:parameter/${ServiceName}/LOG_DIRECTORY'
+            - Name: MEDIA_ROOT
+              ValueFrom: !Sub  'arn:aws:ssm:us-east-1:${AWS::AccountId}:parameter/${ServiceName}/MEDIA_ROOT'
+            - Name: PROTOCOL
+              ValueFrom: !Sub  'arn:aws:ssm:us-east-1:${AWS::AccountId}:parameter/${ServiceName}/PROTOCOL'
+            - Name: REDIS_PASSWORD
+              ValueFrom: !Sub  'arn:aws:ssm:us-east-1:${AWS::AccountId}:parameter/${ServiceName}/REDIS_PASSWORD'
+            - Name: RESUMEWEB_DBHOST
+              ValueFrom: !Sub  'arn:aws:ssm:us-east-1:${AWS::AccountId}:parameter/${ServiceName}/RESUMEWEB_DBHOST'
+            - Name: RESUMEWEB_DBNAME
+              ValueFrom: !Sub  'arn:aws:ssm:us-east-1:${AWS::AccountId}:parameter/${ServiceName}/RESUMEWEB_DBNAME'
+            - Name: RESUMEWEB_DBPASS
+              ValueFrom: !Sub  'arn:aws:ssm:us-east-1:${AWS::AccountId}:parameter/${ServiceName}/RESUMEWEB_DBPASS'              
+            - Name: RESUMEWEB_DBPORT
+              ValueFrom: !Sub  'arn:aws:ssm:us-east-1:${AWS::AccountId}:parameter/${ServiceName}/RESUMEWEB_DBPORT'
+            - Name: RESUMEWEB_DBUSERNAME
+              ValueFrom: !Sub  'arn:aws:ssm:us-east-1:${AWS::AccountId}:parameter/${ServiceName}/RESUMEWEB_DBUSERNAME'
+            - Name: SERVER_TYPE
+              ValueFrom: !Sub  'arn:aws:ssm:us-east-1:${AWS::AccountId}:parameter/${ServiceName}/SERVER_TYPE'
+            - Name: STATIC_ROOT
+              ValueFrom: !Sub  'arn:aws:ssm:us-east-1:${AWS::AccountId}:parameter/${ServiceName}/STATIC_ROOT'
+            - Name: STATIC_URL
+              ValueFrom: !Sub  'arn:aws:ssm:us-east-1:${AWS::AccountId}:parameter/${ServiceName}/STATIC_URL'
+
+        - Name: 'webserver'
+          Image: !Sub '018837131763.dkr.ecr.us-east-1.amazonaws.com/ccv1/dev/ccv1-webserver:${ImageTag}'
+          PortMappings:
+            - ContainerPort: 80
+              protocol: 'tcp'
+              hostPort: 80
+          DependsOn:
+            - Condition: HEALTHY
+              ContainerName: webapp
+          # Send logs to CloudWatch Logs
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-region: !Ref AWS::Region
+              awslogs-group: !Ref WebLogGroup
+              awslogs-stream-prefix: ecs
+  
+  # A role needed by ECS
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Join ['', [!Ref ServiceName, ExecutionRole]]
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy'
+      Policies:
+        -
+          PolicyName: "ssm-parameter-store-access"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              -
+                Effect: "Allow"
+                Action:
+                  - "ssm:GetParameters"
+                  - "ssm:GetParameter"
+                Resource: "*"
+
+  # A role for the containers
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Join ['', [!Ref ServiceName, TaskRole]]
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+      # ManagedPolicyArns:
+      #   -
+      # Policies:
+      #   -
+  
+  # Security group for containers
+  ContainerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Join ['', [!Ref ServiceName, ContainerSecurityGroup]]
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: !Ref ContainerPort
+          ToPort: !Ref ContainerPort
+          SourceSecurityGroupId:  !Ref AlbSecurityGroup #CidrIp: 0.0.0.0/0
+  
+  AppLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Join ['', [/ecs/, !Ref ServiceName, 'app', TaskDefinition]]
+  
+  WebLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Join ['', [/ecs/, !Ref ServiceName, 'web', TaskDefinition]]  
+
+  # DNSRecord:
+  #   Type: AWS::Route53::RecordSet
+  #   Properties:
+  #     HostedZoneName: !Join ['', [!Ref HostedZoneName, .]]
+  #     Name: !Join ['', [!Ref Subdomain, ., !Ref HostedZoneName, .]]
+  #     Type: A
+  #     AliasTarget:
+  #       DNSName: !ImportValue
+  #         'Fn::Sub': '${AlbStackName}-AlbUrl'
+  #       HostedZoneId: !ImportValue
+  #         'Fn::Sub': '${AlbStackName}-CanonicalHostedZoneID'
