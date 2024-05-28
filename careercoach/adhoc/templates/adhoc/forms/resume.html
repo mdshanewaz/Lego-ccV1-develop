@@ -1,0 +1,17 @@
+{% load crispy_forms_tags %}
+
+<h4 class="fw-bolder mb-0">Section 3: Submit your resume</h4>
+
+<p class="text-reset mb-3">
+  {% include 'adhoc/pg-contents/form-section-exp/about_your_resume.html' %}
+</p>
+
+<div class="card border rounded-0 mb-3">
+  <div class="card-body">    
+    <div class="row">
+      <div class="form-group col-md-6 mb-0">
+        {{ form.resume|as_crispy_field }}
+      </div>
+    </div>      
+  </div>
+</div>
