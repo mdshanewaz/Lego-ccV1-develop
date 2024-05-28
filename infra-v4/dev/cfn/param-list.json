@@ -1,0 +1,74 @@
+[
+    {
+        "ParameterKey"    : "AlbPath",
+        "ParameterValue"  : "/"
+    },
+    {
+        "ParameterKey"    : "AlbPriority",
+        "ParameterValue"  : "5"
+    },
+    {
+        "ParameterKey"    : "AlbStackName",
+        "ParameterValue"  : "alb"
+    },
+    {
+        "ParameterKey"    : "Cluster",
+        "ParameterValue"  : "dataflightit-tools-cluster"
+    },
+
+
+
+
+    {
+        "ParameterKey"    : "ServiceName",
+        "ParameterValue"  : "10.1.0.0/16"
+    },
+    {
+        "ParameterKey"    : "ContainerPort",
+        "ParameterValue"  : "80"
+    },
+
+
+    
+    {
+        "ParameterKey"    : "AlbSecurityGroup",
+        "ParameterValue"  : "sg-0fd332df591addb98"
+    },    
+    {
+        "ParameterKey"    : "LoadBalancerPort",
+        "ParameterValue"  : "80"
+    },    
+    {
+        "ParameterKey"    : "HealthCheckPath",
+        "ParameterValue"  : "/"
+    },    
+    {
+        "ParameterKey"    : "HostedZoneName",
+        "ParameterValue"  : "dataflightit.com"
+    },
+    {
+        "ParameterKey"    : "Subdomain",
+        "ParameterValue"  : "ccv1dev101"
+    },
+    {
+        "ParameterKey"    : "VPC",
+        "ParameterValue"  : "vpc-b5f45ed3"
+    },
+    {
+        "ParameterKey"    : "SubnetA",
+        "ParameterValue"  : "subnet-010f8164"
+    },
+    {
+        "ParameterKey"    : "SubnetB",
+        "ParameterValue"  : "subnet-76680e2d"
+    },
+    {
+        "ParameterKey"    : "ImageTag",
+        "ParameterValue"  : "10.1.0.0/16"
+    },
+    {
+        "ParameterKey"    : "DeploymentTag",
+        "ParameterValue"  : "10.1.0.0/16"
+    }                    
+]
+
