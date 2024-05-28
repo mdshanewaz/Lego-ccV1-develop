@@ -1,0 +1,10 @@
+https://betterprogramming.pub/dockerize-your-django-apps-428189407c69
+
+https://blog.logrocket.com/dockerizing-django-app/
+
+**
+https://github.com/ruddra/docker-django/blob/master/docker-compose.yml
+
+**
+https://github.com/ruddra/docker-django/blob/master/docker-compose.yml
+

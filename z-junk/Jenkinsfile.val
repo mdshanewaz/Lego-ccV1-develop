@@ -1,0 +1,359 @@
+pipeline {
+    agent any
+
+    environment {
+        ECR_REGISTRY      = "018837131763.dkr.ecr.us-east-1.amazonaws.com"
+        CCV1_APP_IMAGE    = "dataflightit/val/ccv1-app"
+        CCV1_NGINX_IMAGE  = "dataflightit/val/ccv1-nginx"
+        SLACK_CHANNEL     = "#devops-general"
+        HOSTED_ZONE       = "dataflightit.com"
+        SUB_DOMAIN        = "ccv1val301"
+    }
+
+    stages {
+
+
+        stage('Checkout git repo') {
+            
+            steps {
+                checkout scm
+                script {
+                    env.GIT_COMMIT = sh(returnStdout: true, script: 'git rev-parse HEAD').trim()
+
+                }
+
+                script {
+                    try {
+                        notifyBuild('STARTED')
+
+                        dir("place") {
+                            sh 'script name'
+                        }
+                    } catch (e) {
+                        // If there was an exception thrown, the build failed
+                        currentBuild.result = "FAILED"
+                        throw e
+                    } finally {
+                        // Success or failure, always send notifications
+                        notifyBuild(currentBuild.result)
+                    }            
+                }
+            }
+
+        }
+
+
+        stage('check ENV_var') {
+            when {
+                branch 'release/val'
+            }
+
+            steps {
+                script{
+
+                    // prepare application configuratoin
+                    sh """
+                    CONFIG_PARAMETERS=\$(aws ssm  get-parameters-by-path \
+                      --path "/ccv1-dev/" \
+                      --query "Parameters[*].Name" \
+                      --region us-east-1 \
+                      --output text)
+
+                    for config in \$CONFIG_PARAMETERS; do
+                        env_value=\$(aws ssm get-parameter \
+                            --name "\$config" \
+                            --query "Parameter.Value" \
+                            --region us-east-1 \
+                            --output text)
+                        env_name=\${config##/*/}
+
+                       echo "\${env_name}=\${env_value}"
+                    done
+                    """                    
+
+                }            
+            }
+
+        }
+
+
+        stage('build and publish ccv1_app image') {
+            
+            when {
+                branch 'dev101'
+            }
+            
+            steps {
+                script {
+                    sh '''
+                        set +x
+                        $(aws ecr get-login --no-include-email --region us-east-1)
+                        set -x
+                    '''
+                    
+                    // To delete volumes currently not being used by a running or stopped container
+                    sh "docker system prune --all --force --volumes"
+
+                    // build and publish ccv1_app image
+                    sh "docker build -t ${CCV1_APP_IMAGE}:${GIT_COMMIT} -f infra-v3/val/Dockerfile-app ."
+                    sh "docker tag ${CCV1_APP_IMAGE}:${GIT_COMMIT} ${ECR_REGISTRY}/${CCV1_APP_IMAGE}:${GIT_COMMIT}"
+                    sh "docker tag ${CCV1_APP_IMAGE}:${GIT_COMMIT} ${ECR_REGISTRY}/${CCV1_APP_IMAGE}:latest"
+                    sh "docker push ${ECR_REGISTRY}/${CCV1_APP_IMAGE}:${GIT_COMMIT}"
+                    sh "docker push ${ECR_REGISTRY}/${CCV1_APP_IMAGE}:latest"
+
+                    // TODO: need to add script to inspect docker volumes
+                    echo "show docker images"
+                    sh "docker images"
+
+
+                    echo "show docker containers"
+                    sh "docker ps"
+
+                }
+            }
+
+            
+
+        }
+
+
+        stage('build and publish ccv1_nginx image') {
+            
+            when {
+                branch 'dev101'
+            }
+
+            steps {
+                script {
+
+                    // build and publish ccv1_nginx image
+                    sh "docker build -t ${CCV1_NGINX_IMAGE}:${GIT_COMMIT} -f infra-v3/val/Dockerfile-nginx ."
+                    sh "docker tag ${CCV1_NGINX_IMAGE}:${GIT_COMMIT} ${ECR_REGISTRY}/${CCV1_NGINX_IMAGE}:${GIT_COMMIT}"
+                    sh "docker tag ${CCV1_NGINX_IMAGE}:${GIT_COMMIT} ${ECR_REGISTRY}/${CCV1_NGINX_IMAGE}:latest"
+                    sh "docker push ${ECR_REGISTRY}/${CCV1_NGINX_IMAGE}:${GIT_COMMIT}"
+                    sh "docker push ${ECR_REGISTRY}/${CCV1_NGINX_IMAGE}:latest"
+                }
+            }
+
+                      
+
+        }
+
+
+
+        stage('Database Migration') {
+            
+            when {
+                branch 'release/val'
+            }
+
+            steps {
+                script{
+                    String username_fname = 'admin'
+                    String username_lname = new Date().format("yyyyMMddHHmmss")
+                    String dynamicUsername = username_fname + username_lname
+                    
+                    // prepare application configuratoin
+                    sh """
+                        set +x
+                        DOCKER_EVN_FILE=.env
+                        CONFIG_PARAMETERS=\$(aws ssm  get-parameters-by-path \
+                          --path "/ccv1-dev/" \
+                          --query "Parameters[*].Name" \
+                          --region us-east-1 \
+                          --output text)
+
+                        for config in \$CONFIG_PARAMETERS; do
+                           env_value=\$(aws ssm get-parameter \
+                            --name "\$config" \
+                            --query "Parameter.Value" \
+                            --with-decryption  \
+                            --region us-east-1 \
+                            --output text)
+                            env_name=\${config##/*/}
+
+                           echo "\${env_name}=\${env_value}" >> \${DOCKER_EVN_FILE}
+                        done
+                        set -x
+                    """
+
+                    // -- setup docker-compose
+                    sh """curl -L "https://github.com/docker/compose/releases/download/1.27.4/docker-compose-\$(uname -s)-\$(uname -m)" -o docker-compose"""
+                    sh "chmod +x docker-compose"
+                    sh "./docker-compose -f infra-v3/val/docker-compose-fargate.yml up -d"
+                    sh "./docker-compose config"
+
+
+                    // --- starting db migration commands
+                    sh "./docker-compose exec -T app python manage.py makemigrations"
+                    sh "./docker-compose exec -T app python manage.py migrate"
+                    sh "./docker-compose exec -T app python manage.py showmigrations"
+
+
+                    // --- starting loading initial json data to db
+                    // sh "./docker-compose exec -T app python manage.py loaddata_to_db"
+
+
+
+                    // --- check for critial issues
+                    sh "./docker-compose exec -T app python manage.py check --deploy"
+
+
+                    // --- create superuser username=someusername
+                    sh "./docker-compose exec -T app python manage.py create_superuser_command2 --username ${dynamicUsername} --noinput"
+
+
+                    // --- check docker containers
+                    sh "docker ps"                    
+
+                }
+            }
+
+            post {
+            
+                always {
+                    // make sure that the Docker image is removed
+                    sh "./docker-compose -f infra-v3/val/docker-compose-fargate.yml up -d"
+                }
+            }
+        }
+
+
+        stage('Deploy ECS Service') {
+            
+            when {
+                branch 'dev101'
+            }
+            
+            steps {
+                script{
+                    String currentDate = new Date().format("yyyy-MM-dd")
+                    def deploymentTag ="${currentDate}.${BUILD_NUMBER}.${GIT_COMMIT}"
+                    def stackName = "ccv1-val"
+                    def checkIfStackExists = sh(script: """aws cloudformation describe-stacks --stack-name ${stackName} --region us-east-1 >/dev/null""", returnStatus: true)
+                    def cfnCommand = "create-stack"
+                    def waitCommand = "stack-create-complete"
+
+                    if (checkIfStackExists == 0){
+                        cfnCommand = "update-stack"
+                        waitCommand = "stack-update-complete"
+                    }
+
+                    sh """
+                        aws ecs update-service\
+                        --service ${stackName}\
+                        --cluster dataflightit-tools-cluster\
+                        --force-new-deployment\
+                        --region us-east-1
+                    """
+
+                    sh """
+                    STACK_ID=\$(aws cloudformation ${cfnCommand} \
+                        --stack-name ${stackName} \
+                        --template-body file://infra-v3/val/cfn.yaml \
+                        --parameters \
+                            ParameterKey=AlbPath,ParameterValue=/ \
+                            ParameterKey=AlbPriority,ParameterValue=5 \
+                            ParameterKey=AlbStackName,ParameterValue=alb \
+                            ParameterKey=Cluster,ParameterValue=dataflightit-tools-cluster \
+                            ParameterKey=ContainerPort,ParameterValue=80 \
+                            ParameterKey=HealthCheckPath,ParameterValue=/ \
+                            ParameterKey=HostedZoneName,ParameterValue=${HOSTED_ZONE} \
+                            ParameterKey=ImageTag,ParameterValue=${GIT_COMMIT} \
+                            ParameterKey=LoadBalancerPort,ParameterValue=80 \
+                            ParameterKey=ServiceName,ParameterValue=${stackName} \
+                            ParameterKey=Subdomain,ParameterValue=${Sub_DOMAIN} \
+                            ParameterKey=SubnetA,ParameterValue=subnet-010f8164 \
+                            ParameterKey=SubnetB,ParameterValue=subnet-76680e2d \
+                            ParameterKey=AlbSecurityGroup,ParameterValue=sg-0fd332df591addb98 \
+                            ParameterKey=VPC,ParameterValue=vpc-b5f45ed3 \
+                            ParameterKey=DeploymentTag,ParameterValue=${deploymentTag} \
+                        --capabilities CAPABILITY_NAMED_IAM \
+                        --output text \
+                        --region us-east-1 \
+                        --query "StackId")
+
+                        # wait until the task is completed
+                        aws cloudformation wait ${waitCommand} \
+                        --stack-name \$STACK_ID \
+                        --region us-east-1
+
+                    """
+
+                    // Describe the ENI to get the public IP address
+                    // NETWORK_INTERFACE_ID = "eni-0fa40520aeEXAMPLE"
+                    // sh "aws ec2 describe-network-interfaces --network-interface-id  ${NETWORK_INTERFACE_ID}"
+                }
+            }
+
+
+        }
+
+
+
+    }
+
+    post {
+
+        success {
+            script {
+                msg = "ccv1/dev101 >>> Build#${env.BUILD_NUMBER} >>> success"
+                slackSend message: msg, color: 'good', channel: "${SLACK_CHANNEL}"
+            }
+        }
+
+        failure {
+            script {
+                msg = "ccv1/dev101 >>> Build#${env.BUILD_NUMBER} >>> failed"
+                slackSend message: msg, channel: "${SLACK_CHANNEL}"
+            }
+        }
+
+        always {
+            // remote ccv1_app images
+            sh "docker rmi -f ${CCV1_APP_IMAGE}:${GIT_COMMIT} || true"
+            sh "docker rmi -f ${ECR_REGISTRY}/${CCV1_APP_IMAGE}:${GIT_COMMIT} || true"
+            sh "docker rmi -f ${ECR_REGISTRY}/${CCV1_APP_IMAGE}:latest || true"
+
+            // remote ccv1_web images
+            sh "docker rmi -f ${CCV1_NGINX_IMAGE}:${GIT_COMMIT}  || true"
+            sh "docker rmi -f ${ECR_REGISTRY}/${CCV1_NGINX_IMAGE}:${GIT_COMMIT} || true"
+            sh "docker rmi -f ${ECR_REGISTRY}/${CCV1_NGINX_IMAGE}:latest || true"
+
+            deleteDir() /* clean up our workspace */
+        }
+    }
+}
+
+
+
+
+def notifyBuild(String buildStatus = 'STARTED') {
+    // build status of null means successful
+    buildStatus =  buildStatus ?: 'SUCCESSFUL'
+
+    // Default values
+    def mySlackChannel = "#devops-general"
+    def colorName = 'RED'
+    def colorCode = '#FF0000'
+    def subject = "${buildStatus}: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'"
+    def summary = "${subject} (${env.BUILD_URL})"
+    def details = """<p>STARTED: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]':</p>
+    <p>Check console output at &QUOT;<a href='${env.BUILD_URL}'>${env.JOB_NAME} [${env.BUILD_NUMBER}]</a>&QUOT;</p>"""
+
+    // Override default values based on build status
+    if (buildStatus == 'STARTED') {
+        color = 'YELLOW'
+        colorCode = '#FFFF00'
+    } else if (buildStatus == 'SUCCESSFUL') {
+        color = 'GREEN'
+        colorCode = '#00FF00'
+    } else {
+        color = 'RED'
+        colorCode = '#FF0000'
+    }
+
+    // Send notifications
+    // slackSend (channel: '@me', color: colorCode, message: summary)
+    slackSend channel: mySlackChannel, message: summary
+}
