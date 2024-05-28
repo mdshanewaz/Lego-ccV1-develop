@@ -1,0 +1,40 @@
+<h4 class="display-3 fw-bold">
+  Thank you for <span class="text-primary">uploading your resume</span> for a quick analysis
+</h4>
+
+<p class="fs-lg text-muted mb-6">
+  Here is your submission summary
+</p>
+
+<p class="fs-lg text-muted mb-6">
+  <table class="table">
+    <tbody>
+      <tr>
+        <th scope="row">Submission Date & Time</th>
+        <td>{{ timestamp }}</td>
+      </tr>
+      <tr>
+        {% if paypaltransaction_id %}
+        <th scope="row">Paypal Transaction Information</th>
+        <td>{{ paypaltransaction_id }}</td>
+        {% endif %}
+      </tr>
+      <tr>
+        <th scope="row">Confirmation email sent to</th>
+        <td>{{email_address_list}}</td>
+      </tr>
+      <tr>
+        <th scope="row">Method of Delivery</th>
+        <td>Response will be delivered electronically to the following Email
+        {{email_address_list}}
+        </td>
+      </tr>              
+    </tbody>
+  </table>
+</p>
+
+<p>
+  <a href="{% url 'site_homepage_url' %}" class="btn btn-primary">
+    Done
+  </a>
+</p>
