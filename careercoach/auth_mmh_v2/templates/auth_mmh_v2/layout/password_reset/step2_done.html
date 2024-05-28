@@ -1,0 +1,20 @@
+{% extends 'auth_mmh_v2/layout/primary_layout_v3.html' %}
+{% load static %}
+
+
+{% block form_heading %}
+    <h1 class="py-3 fw-bolder mb-0">Password Reset Verification Stage</h1>
+    <p>Step 2/4</p>
+{% endblock %}
+
+
+{% block main_body_section %}
+    Please check your email >>>{{user_email_add}}. In a few matter of moments,
+    we will send you an email with a password reset link. Please click 
+    on that link and it will take you to the new password setup page.
+{% endblock %}
+
+
+{% block right_hand_side %}
+    <img src="{% static 'auth_mmh_v2/assets/img/429.jpg' %}" class="card-img" alt="..." style="height:25.5rem">
+{% endblock %}
