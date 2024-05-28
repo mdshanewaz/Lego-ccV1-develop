@@ -1,0 +1,85 @@
+{% load crispy_forms_tags %}
+
+
+  <form method="POST">
+    {% csrf_token %}
+    <div class="mb-6">
+      <p><h2>About the Site</h2></p>
+      <div class="row">
+        <div class="form-group col-md-12 mb-0">
+          {{ form.site_used|as_crispy_field }}
+        </div>
+      </div>  
+
+      <div class="row">
+        <div class="form-group col-md-12 mb-0">
+          {{ form.hmpg_design|as_crispy_field }}
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="form-group col-md-12 mb-0">
+          {{ form.userfriendly|as_crispy_field }}
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="form-group col-md-12 mb-0">
+          {{ form.promo_offers|as_crispy_field }}
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="form-group col-md-12 mb-0">
+          {{ form.service_lineup|as_crispy_field }}
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="form-group col-md-12 mb-0">
+          {{ form.overall_exp|as_crispy_field }}
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="form-group col-md-12 mb-0">
+          {{ form.recommend|as_crispy_field }}
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="form-group col-md-12 mb-0">
+          {{ form.message|as_crispy_field }}
+        </div>
+      </div>
+    </div>
+
+    <div class="mb-6">
+      <p><h2>About you</h2></p>
+      <div class="row">
+        <div class="form-group col-md-6 mb-0">
+          {{ form.name|as_crispy_field }}
+        </div>
+      </div>
+      <div class="row">
+        <div class="form-group col-md-12 mb-0">
+          {{ form.email|as_crispy_field }}
+        </div>
+      </div>
+    </div>
+    
+    <button class="btn btn-primary btn-xs rounded-0" type="submit">Submit</button>
+  </form>
+
+
+{% comment "Optional note" %}
+    {% if messages %}
+      {% for message in messages %}
+      <div class="alert alert-dismissible alert-success col-md-6 my-3">
+        {{message}}
+        <button type="button" class="close" data-dismiss="alert">×</button>
+      </div>
+      {% endfor %}
+    {% endif %}
+{% endcomment %}
+
